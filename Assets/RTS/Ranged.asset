@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e63fac1bd52277c4fa5b69d0f6d22d6c, type: 3}
+  m_Name: Ranged
+  m_EditorClassIdentifier: 
+  unitName: Ranged
+  unitPrefab: {fileID: 5174117556616244120, guid: 9ab6936af3e13164db38532fa6e5a0a2, type: 3}
+  moveSpeed: 5
+  attackRange: 15
+  unitCost: 20
+  unitCapacity: 1
+  maxHealth: 5
+  attackDamage: 10
+  buildingDamageMultiplier: 2
