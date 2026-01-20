@@ -21,6 +21,7 @@ public class PhysicsUnitMover : MonoBehaviour
     public float dashSpeedMultiplier = 2.0f;
     public float dashDuration = 0.5f;
     public float dashCooldown = 3.0f;
+    public ParticleSystem dashEffect;
 
     [Header("Team Settings")]
     public bool isPlayerUnit = true;
@@ -35,6 +36,7 @@ public class PhysicsUnitMover : MonoBehaviour
     private NavMeshAgent agent;
     private Color originalColor;
     private Renderer myRenderer;
+
 
     void Awake()
     {
@@ -216,17 +218,31 @@ public class PhysicsUnitMover : MonoBehaviour
             transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 15f);
     }
 
+    public float DashCooldownTimer => currentCooldownTimer;
+
     private void HandleBerserkerDash()
     {
         if (!isMeleeUnit) return;
+
         if (isDashing)
         {
             currentDashTimer -= Time.fixedDeltaTime;
-            if (currentDashTimer <= 0) isDashing = false;
+            if (currentDashTimer <= 0)
+            {
+                isDashing = false;
+                if (dashEffect != null) dashEffect.Stop();
+            }
         }
-        if (currentCooldownTimer > 0) currentCooldownTimer -= Time.fixedDeltaTime;
-        else if (currentState == UnitState.Move || currentState == UnitState.AttackMove || attackTarget != null)
+
+        if (currentCooldownTimer > 0)
+        {
+            currentCooldownTimer -= Time.fixedDeltaTime;
+        }
+        // [핵심 수정] 적 타겟이 존재하고 살아있을 때만 대쉬 발동
+        else if (attackTarget != null && attackTarget.gameObject.activeInHierarchy)
+        {
             TriggerDash();
+        }
     }
 
     private void TriggerDash()
@@ -234,6 +250,8 @@ public class PhysicsUnitMover : MonoBehaviour
         isDashing = true;
         currentDashTimer = dashDuration;
         currentCooldownTimer = dashCooldown;
+
+        if (dashEffect != null) dashEffect.Play(); // 대쉬 시 파티클 재생
     }
 
     void PerformAttack()
