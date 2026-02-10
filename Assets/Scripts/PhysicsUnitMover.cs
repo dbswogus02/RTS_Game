@@ -1,42 +1,46 @@
 ﻿using UnityEngine;
 using UnityEngine.AI;
 
+// 유닛의 현재 행동 상태를 관리하는 유한 상태 머신(FSM) 열거형
 public enum UnitState { Idle, Move, Attack, HoldGround, AttackMove }
 
 public class PhysicsUnitMover : MonoBehaviour
 {
     [Header("Unit Stats")]
-    public float moveSpeed = 5f;
-    public float attackRange = 3f;
-    public float detectionRange = 20f;
-    public float attackRate = 1.0f;
-    private float attackTimer = 0f;
+    public float moveSpeed = 5f;      // 이동 속도
+    public float attackRange = 3f;    // 사거리
+    public float detectionRange = 20f; // 적 감지 범위
+    public float attackRate = 1.0f;   // 초당 공격 횟수
+    private float attackTimer = 0f;    // 공격 쿨타임용 타이머
 
-    public UnitState currentState = UnitState.Idle;
-    public UnitData unitData;
-    public float currentHealth;
+    public UnitState currentState = UnitState.Idle; // 현재 상태
+    public UnitData unitData;         // 유닛 스펙이 담긴 ScriptableObject
+    public float currentHealth;       // 현재 체력
 
     [Header("Passive: Berserker Dash")]
-    public bool isMeleeUnit = false;
-    public float dashSpeedMultiplier = 2.0f;
-    public float dashDuration = 0.5f;
-    public float dashCooldown = 3.0f;
-    public ParticleSystem dashEffect;
+    public bool isMeleeUnit = false;      // 근접 유닛인지 판별
+    public float dashSpeedMultiplier = 2.0f; // 대쉬 시 속도 증가폭
+    public float dashDuration = 0.5f;     // 대쉬 지속 시간
+    public float dashCooldown = 3.0f;     // 대쉬 쿨타임 (전체)
+    public ParticleSystem dashEffect;     // 대쉬 중 파티클 효과
 
     [Header("Team Settings")]
-    public bool isPlayerUnit = true;
+    public bool isPlayerUnit = true;      // 플레이어 진영 여부
 
     private float currentDashTimer = 0f;
-    private float currentCooldownTimer = 0f;
+    private float currentCooldownTimer = 0f; // 현재 남은 쿨타임 시간
     private bool isDashing = false;
 
-    private Vector3 finalDestination;
-    private Transform attackTarget;
+    private Vector3 finalDestination;     // 이동 목표 지점
+    private Transform attackTarget;       // 공격 목표 대상
     private Rigidbody rb;
     private NavMeshAgent agent;
     private Color originalColor;
     private Renderer myRenderer;
 
+    // --- UIManager에서 빨간 줄이 떴던 원인이자 해결책 ---
+    // 외부에서 currentCooldownTimer를 읽을 수 있게 해주는 창구입니다.
+    public float DashCooldownTimer => currentCooldownTimer;
 
     void Awake()
     {
@@ -47,24 +51,27 @@ public class PhysicsUnitMover : MonoBehaviour
 
         if (agent != null)
         {
+            // [중요] NavMesh가 위치를 직접 수정하지 않고 물리(Rigidbody)가 담당하게 설정
             agent.updatePosition = false;
             agent.updateRotation = true;
             agent.acceleration = 100f;
             agent.angularSpeed = 720f;
 
-            // [겹침 방지 보강]
+            // 유닛끼리 겹치지 않게 우선순위를 랜덤으로 부여 (병목 현상 방지)
             agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
-            agent.avoidancePriority = Random.Range(30, 70); // 우선순위를 랜덤하게 주어 서로 잘 비키게 함
+            agent.avoidancePriority = Random.Range(30, 70);
             agent.stoppingDistance = 0.5f;
         }
 
+        // 유닛이 물리 충돌 시 넘어지지 않도록 회전 축 고정
         rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
-        rb.collisionDetectionMode = CollisionDetectionMode.Continuous; // 물리 안정성 강화
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
     }
 
     void Start()
     {
+        // 데이터 에셋으로부터 초기 수치 설정
         if (unitData != null)
         {
             currentHealth = unitData.maxHealth;
@@ -75,13 +82,16 @@ public class PhysicsUnitMover : MonoBehaviour
         currentCooldownTimer = dashCooldown;
     }
 
-    void FixedUpdate()
+    void FixedUpdate() // 물리 기반 이동을 위해 FixedUpdate 사용
     {
         if (attackTimer > 0) attackTimer -= Time.fixedDeltaTime;
-        HandleBerserkerDash();
 
+        HandleBerserkerDash(); // 대쉬 로직 체크
+
+        // 강제 이동 중이 아니라면 주변 적을 항상 감시
         if (currentState != UnitState.Move) SearchForEnemy();
 
+        // 상태별 행동 지침
         switch (currentState)
         {
             case UnitState.Idle:
@@ -97,12 +107,14 @@ public class PhysicsUnitMover : MonoBehaviour
                 break;
         }
 
+        // NavMeshAgent의 논리적 위치를 실제 오브젝트 위치에 동기화
         if (agent != null && agent.isOnNavMesh)
         {
             agent.nextPosition = transform.position;
         }
     }
 
+    // NavMesh의 경로 정보를 Rigidbody의 속도로 변환하여 물리적 이동 구현
     void MoveTo(Vector3 pos)
     {
         if (agent == null || !agent.isOnNavMesh) return;
@@ -110,16 +122,16 @@ public class PhysicsUnitMover : MonoBehaviour
         if (agent.destination != pos) agent.SetDestination(pos);
         agent.isStopped = false;
 
+        // 대쉬 중이라면 속도 증가
         float finalSpeed = isDashing ? moveSpeed * dashSpeedMultiplier : moveSpeed;
         Vector3 worldVelocity = agent.desiredVelocity.normalized * finalSpeed;
 
         float yVel = rb.linearVelocity.y;
-        if (yVel > 0) yVel *= 0.5f;
+        if (yVel > 0) yVel *= 0.5f; // 점프 방지 로직
 
         rb.linearVelocity = new Vector3(worldVelocity.x, yVel, worldVelocity.z);
 
-        // [도착 판정 개선]
-        // 남은 거리가 stoppingDistance보다 작으면 확실히 멈추게 함
+        // 목적지 도착 판정
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.1f)
         {
             StopMoving();
@@ -127,6 +139,7 @@ public class PhysicsUnitMover : MonoBehaviour
         }
     }
 
+    // 마우스 우클릭 등 일반 이동 명령 시 호출
     public void SetTarget(Vector3 target)
     {
         attackTarget = null;
@@ -134,6 +147,7 @@ public class PhysicsUnitMover : MonoBehaviour
         currentState = UnitState.Move;
     }
 
+    // 'A' 키 등 공격 이동 명령 시 호출
     public void SetAttackMove(Vector3 target)
     {
         attackTarget = null;
@@ -141,38 +155,36 @@ public class PhysicsUnitMover : MonoBehaviour
         currentState = UnitState.AttackMove;
     }
 
-    public void ResetColor()
-    {
-        if (myRenderer != null) myRenderer.material.color = originalColor;
-    }
-
+    // 공격 상태일 때 적과의 거리에 따른 행동
     void HandleAttack()
     {
         if (attackTarget == null || !attackTarget.gameObject.activeInHierarchy)
         {
             attackTarget = null;
+            // 타겟이 사라지면 목적지가 남았을 경우 다시 이동, 없으면 대기
             currentState = (Vector3.Distance(transform.position, finalDestination) > 1.2f) ? UnitState.AttackMove : UnitState.Idle;
             return;
         }
 
         float dist = Vector3.Distance(transform.position, attackTarget.position);
 
-        if (dist <= attackRange)
+        if (dist <= attackRange) // 사거리 내
         {
             StopMoving();
-            RotateTowards(attackTarget.position);
+            RotateTowards(attackTarget.position); // 적을 조준
             if (attackTimer <= 0)
             {
-                PerformAttack();
+                PerformAttack(); // 실제 타격
                 attackTimer = 1f / attackRate;
             }
         }
-        else
+        else // 사거리 밖이면 추격
         {
             MoveTo(attackTarget.position);
         }
     }
 
+    // 주변의 적 진영 유닛을 찾는 센서 함수
     bool SearchForEnemy()
     {
         if (attackTarget != null && attackTarget.gameObject.activeInHierarchy) return true;
@@ -184,6 +196,7 @@ public class PhysicsUnitMover : MonoBehaviour
         foreach (var col in cols)
         {
             Health targetHealth = col.GetComponent<Health>();
+            // 팀이 다르고 살아있는 유닛만 타겟팅
             if (targetHealth != null && targetHealth.isPlayerSide != this.isPlayerUnit)
             {
                 float dist = Vector3.Distance(transform.position, col.transform.position);
@@ -218,8 +231,7 @@ public class PhysicsUnitMover : MonoBehaviour
             transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), Time.deltaTime * 15f);
     }
 
-    public float DashCooldownTimer => currentCooldownTimer;
-
+    // 근접 유닛 패시브: 공격 대상이 생기면 빠르게 접근
     private void HandleBerserkerDash()
     {
         if (!isMeleeUnit) return;
@@ -238,7 +250,6 @@ public class PhysicsUnitMover : MonoBehaviour
         {
             currentCooldownTimer -= Time.fixedDeltaTime;
         }
-        // [핵심 수정] 적 타겟이 존재하고 살아있을 때만 대쉬 발동
         else if (attackTarget != null && attackTarget.gameObject.activeInHierarchy)
         {
             TriggerDash();
@@ -250,15 +261,16 @@ public class PhysicsUnitMover : MonoBehaviour
         isDashing = true;
         currentDashTimer = dashDuration;
         currentCooldownTimer = dashCooldown;
-
-        if (dashEffect != null) dashEffect.Play(); // 대쉬 시 파티클 재생
+        if (dashEffect != null) dashEffect.Play();
     }
 
+    // 실제로 데미지를 입히고 보너스 데미지를 적용하는 함수
     void PerformAttack()
     {
         if (attackTarget == null) return;
 
         float totalDamage = unitData.attackDamage;
+        // 업그레이드 매니저가 있다면 보너스 합산
         if (ResearchManager.Instance != null)
         {
             if (unitData.unitName.Contains("Melee")) totalDamage += ResearchManager.Instance.meleeAttackBonus;
@@ -270,7 +282,26 @@ public class PhysicsUnitMover : MonoBehaviour
         if (targetHealth != null)
         {
             targetHealth.TakeDamage(totalDamage);
-            Debug.Log($"<color=cyan>[공격 완료]</color> {unitData.unitName} -> {attackTarget.name}에게 <color=red>{totalDamage}</color> 피해를 입힘!");
+            Debug.Log($"<color=cyan>[공격]</color> {unitData.unitName} -> {attackTarget.name} : {totalDamage} 피해");
+        }
+    }
+
+    // 1. 유닛의 색상을 원래대로 되돌리는 함수
+    // RTSUnitManager.DeselectAll()에서 호출할 때 발생하던 오류를 해결합니다.
+    public void ResetColor()
+    {
+        if (myRenderer != null)
+        {
+            myRenderer.material.color = originalColor;
+        }
+    }
+
+    // 2. 유닛의 하이라이트 색상을 변경하는 함수 (선택 사항이지만 유용함)
+    public void SetHighlightColor(Color color)
+    {
+        if (myRenderer != null)
+        {
+            myRenderer.material.color = color;
         }
     }
 }
